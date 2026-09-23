@@ -1,1 +1,11 @@
+#Link
+
+https://jwilsonschutter2.github.io/SuperNiceCensus/
+
+#General Methodology / Thoughts
+
+Census API queries and added mapping made easy. 
+
+#Change Methodology
+
 The Create Change Map tool harmonizes older Census geography to newer geography using a GEOID-first approach. Exact GEOID matches are assigned directly. For changed geographies, candidate matches are identified using tract/block group numbering patterns, validated through polygon intersection, and weighted by proportional area overlap. Source values are then allocated across all qualifying target geographies using normalized overlap weights, preserving splits, merges, and other many-to-many boundary changes. Finally, harmonized historical values are compared to contemporary values to calculate numeric and percent change on a common geography framework.
