@@ -26,8 +26,16 @@
     });
     if (selectedTables.includes(previous)) select.value = previous;
     else if (selectedTables.length === 1) select.value = selectedTables[0];
+    describeVariableSupport();
   }
   window.populateChangeMapVariables = populate;
+  function describeVariableSupport(){
+    const id=el("changeMapVariable").value, note=el("changeVariableSupport"); if(!note)return;
+    if(!id){note.textContent="";return;} const m=typeof variableMeta === "function"?variableMeta(id):{};
+    const txt=[m.displayName,m.shortName,m.mapLabel,m.exportName,id].filter(Boolean).join(" ").toLowerCase();
+    const non=/median|mean|average|percent|percentage|rate|ratio|per capita|index/.test(txt);
+    note.textContent=non ? "Derived/non-additive variable: stable 1-to-1 geographies can be compared; changed boundaries are flagged unresolved rather than divided or summed." : "Count/additive variable: stable values are preserved; split, merge, and complex boundary changes use the GNCCA conservation rules.";
+  }
 
   async function rows(year, variable) {
     if (typeof fetchTopicRowsForCounties === "function") return fetchTopicRowsForCounties(year, variable, (i,n)=>status(`Loading ${year}: county ${i} of ${n}...`,"checking"));
@@ -273,7 +281,7 @@
   }
   function showQa(summary) {
     const pass = summary.conservationPassed ? "PASS" : "FAIL";
-    el("changeMapQa").innerHTML = `<strong>Geography-Normalized Change QA</strong><br>Stable: ${summary.stable}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Earlier original total: ${fmt(summary.originalTotal)}; reconstructed earlier total: ${fmt(summary.reconstructedTotal)}; difference: ${fmt(summary.conservationDifference)} (${formatPercentChange(summary.conservationPercent)}); conservation: <strong>${pass}</strong>.<br>Later original total: ${fmt(summary.laterOriginalTotal)}. Later observations were not modified.`;
+    el("changeMapQa").innerHTML = `<strong>Geography-Normalized Change QA</strong><br>Stable: ${summary.stable}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Earlier original total: ${fmt(summary.originalTotal)}; reconstructed earlier total: ${fmt(summary.reconstructedTotal)}; difference: ${fmt(summary.conservationDifference)} (${formatPercentChange(summary.conservationPercent)}); conservation: <strong>${pass}</strong>.<br>Later original total: ${fmt(summary.laterOriginalTotal)}. Later observations were not modified.<br>Variable handling: <strong>${summary.variableKind === "additive" ? "additive/count" : "non-additive/derived"}</strong>.`;
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
@@ -537,6 +545,7 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     el("buildChangeMap").addEventListener("click", build);
+    el("changeMapVariable").addEventListener("change", describeVariableSupport);
     el("exportChangeGeoJson").addEventListener(
       "click",
       () => geojson && downloadGeoJson(geojson, prettyCensusFilename("change", el("changeMapVariable").value)),
