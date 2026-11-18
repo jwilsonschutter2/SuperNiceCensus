@@ -15,8 +15,9 @@ function build({sourceFeatures=[],targetFeatures=[],options={}}){
  for(const t of T.filter(x=>x.id&&!linkedT.has(x.id))){const candidates=S.filter(s=>compatible(s,t,allowCrossCounty)&&contains(s.feature,t.point));for(const s of candidates)if(!edges.some(e=>e.source===s.id&&e.target===t.id))edges.push(edge(s,t,"target-point-in-source"))}
  // Pass 4: diagnostic nearest candidates only; never create graph edges from proximity.
  const finalS=new Set(edges.map(e=>e.source)),finalT=new Set(edges.map(e=>e.target));
- for(const s of S.filter(x=>x.id&&!finalS.has(x.id)))diagnostics.push(nearest(s,T,"source",allowCrossCounty));
- for(const t of T.filter(x=>x.id&&!finalT.has(x.id)))diagnostics.push(nearest(t,S,"target",allowCrossCounty));
+ for(const s of S.filter(x=>x.id&&!finalS.has(x.id))){const d=nearest(s,T,"source",allowCrossCounty);diagnostics.push(d);if(d.nearestCandidate){const t=T.find(x=>x.id===d.nearestCandidate);if(t){const e=edge(s,t,"nearest-fallback");e.nearestDistanceKm=d.distanceKm;e.provisional=true;edges.push(e);}}}
+ const afterS=new Set(edges.map(e=>e.source)),afterT=new Set(edges.map(e=>e.target));
+ for(const t of T.filter(x=>x.id&&!afterT.has(x.id))){const d=nearest(t,S,"target",allowCrossCounty);diagnostics.push(d);if(d.nearestCandidate){const src=S.find(x=>x.id===d.nearestCandidate);if(src&&!edges.some(e=>e.source===src.id&&e.target===t.id)){const e=edge(src,t,"nearest-fallback");e.nearestDistanceKm=d.distanceKm;e.provisional=true;edges.push(e);}}}
  return {relationships:dedupe(edges),diagnostics,sourceBoundaryGeoids:S.map(x=>x.id).filter(Boolean),targetBoundaryGeoids:T.map(x=>x.id).filter(Boolean)};
 }
 function info(feature){const id=String(feature?.properties?.__pc_geoid||"");return{feature,id,state:id.slice(0,2),county:id.slice(2,5),area:area(feature),box:bbox(feature),point:point(feature)}}
