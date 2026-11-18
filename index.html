@@ -377,14 +377,14 @@
             ><span>Variable</span
             ><select id="changeMapVariable">
               <option value="">-- Select variable --</option>
-            </select><small id="changeVariableSupport" class="hint"></small></label
+            </select></label
           ><label class="field-stack"
             ><span>Map metric</span
             ><select id="changeMetric">
               <option value="__difference">Numeric difference</option>
               <option value="__percent">Percent change</option>
             </select>
-            <label class="field-stack"><span>Flag changes exceeding (%)</span><small class="hint">QA only. Values above this absolute percent-change threshold are flagged for review and are not modified.</small><input id="extremeChangeThreshold" type="number" min="1" step="1" value="500" /></label></label
+            <label class="field-stack"><span>Historical feature allocation</span><select id="changeAllocationMethod"><option value="none">None – exact relationship-group change</option><option value="equal">Equal allocation – estimated feature values</option></select></label><label class="field-stack"><span>Extreme change warning (%)</span><input id="extremeChangeThreshold" type="number" min="1" step="1" value="500" /></label></label
           ><label class="field-stack"
             ><span>Mapbox token</span
             ><input

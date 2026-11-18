@@ -26,16 +26,8 @@
     });
     if (selectedTables.includes(previous)) select.value = previous;
     else if (selectedTables.length === 1) select.value = selectedTables[0];
-    describeVariableSupport();
   }
   window.populateChangeMapVariables = populate;
-  function describeVariableSupport(){
-    const id=el("changeMapVariable").value, note=el("changeVariableSupport"); if(!note)return;
-    if(!id){note.textContent="";return;} const m=typeof variableMeta === "function"?variableMeta(id):{};
-    const txt=[m.displayName,m.shortName,m.mapLabel,m.exportName,id].filter(Boolean).join(" ").toLowerCase();
-    const non=/median|mean|average|percent|percentage|rate|ratio|per capita|index/.test(txt);
-    note.textContent=non ? "Derived/non-additive variable: stable 1-to-1 geographies can be compared; changed boundaries are flagged unresolved rather than divided or summed." : "Count/additive variable: stable values are preserved; split, merge, and complex boundary changes use the GNCCA conservation rules.";
-  }
 
   async function rows(year, variable) {
     if (typeof fetchTopicRowsForCounties === "function") return fetchTopicRowsForCounties(year, variable, (i,n)=>status(`Loading ${year}: county ${i} of ${n}...`,"checking"));
@@ -280,8 +272,8 @@
     return { rows: normalized, summary };
   }
   function showQa(summary) {
-    const pass = summary.conservationPassed ? "PASS" : "FAIL";
-    el("changeMapQa").innerHTML = `<strong>Geography-Normalized Change QA</strong><br>Stable: ${summary.stable}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Earlier original total: ${fmt(summary.originalTotal)}; reconstructed earlier total: ${fmt(summary.reconstructedTotal)}; difference: ${fmt(summary.conservationDifference)} (${formatPercentChange(summary.conservationPercent)}); conservation: <strong>${pass}</strong>.<br>Later original total: ${fmt(summary.laterOriginalTotal)}. Later observations were not modified.<br>Variable handling: <strong>${summary.variableKind === "additive" ? "additive/count" : "non-additive/derived"}</strong>.`;
+    const pct = v => formatPercentChange(Number(v) * 100);
+    el("changeMapQa").innerHTML = `<strong>Relationship-Group Change QA</strong><br>Groups: ${summary.groups}; stable: ${summary.stable}; renumbered/direct: ${summary.renumbered_direct}; splits: ${summary.split}; merges: ${summary.merge}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Relationship coverage: ${summary.matchedSources}/${summary.sourceObservationCount} earlier (${pct(summary.sourceCoverage)}); ${summary.matchedTargets}/${summary.targetObservationCount} later (${pct(summary.targetCoverage)}). Unmatched earlier: ${summary.unmatchedSources}; unmatched later: ${summary.unmatchedTargets}.<br>Variable treatment: <strong>${summary.variableKind}</strong>. Exact group totals use original observations; optional feature allocation never replaces group results.`;
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
@@ -405,8 +397,7 @@
       );
       window.__pcChangeMove = (event) => {
         const p = event.features[0].properties;
-        el("changeMapReadout").innerHTML =
-          `<strong>Target GEOID:</strong> ${escapeHtml(p.__geoid)}<br><strong>Earlier source GEOID(s):</strong> ${escapeHtml(p.__source_geoids || "None")}<br><strong>Relationship:</strong> ${escapeHtml(p.__relationship)} (${escapeHtml(p.relationship_dimensions || "")})<br><strong>GEOID verification:</strong> ${escapeHtml(p.__geoid_verification || "review")}<br><strong>Allocation:</strong> ${escapeHtml(p.allocation_method || "none")} ${p.allocation_fraction != null ? `(${formatPercentChange(Number(p.allocation_fraction)*100)})` : ""}<br><strong>${sourceYear} original source value(s):</strong> ${escapeHtml(p.__source_values || "No data")}<br><strong>${sourceYear} comparison value:</strong> ${fmt(p.earlier_comparison_value)}<br><strong>${targetYear} original value:</strong> ${fmt(p.later_original_value)}<br><strong>Numeric change:</strong> ${fmt(p.numeric_change)}<br><strong>Percentage change:</strong> ${formatPercentChange(p.percent_change,p.pct_change_status)}<br><strong>Conservation:</strong> ${escapeHtml(p.conservation_status || "not checked")}<br><strong>Warning:</strong> ${escapeHtml(p.quality_warning || "None")}`;
+        el("changeMapReadout").innerHTML = `<strong>Relationship group:</strong> ${escapeHtml(p.relationship_group_id || "Unmatched")}<br><strong>Type:</strong> ${escapeHtml(p.relationship_type)} (${escapeHtml(p.relationship_dimensions)})<br><strong>Source GEOIDs:</strong> ${escapeHtml(p.source_geoids || "None")}<br><strong>Target GEOIDs:</strong> ${escapeHtml(p.target_geoids || "None")}<br><strong>GEOID verification:</strong> ${escapeHtml(p.geoid_verification || "review")}<br><strong>Earlier group total:</strong> ${fmt(p.source_group_total)}<br><strong>Later group total:</strong> ${fmt(p.target_group_total)}<br><strong>Group numeric change:</strong> ${fmt(p.group_numeric_change)}<br><strong>Group percentage change:</strong> ${formatPercentChange(p.group_percent_change)}<br><strong>Selected target GEOID:</strong> ${escapeHtml(p.__geoid)}<br><strong>Later original value:</strong> ${fmt(p.later_original_value)}<br><strong>Allocation:</strong> ${escapeHtml(p.allocation_method || "none")}<br><strong>Estimated earlier feature value:</strong> ${fmt(p.estimated_source_value)}<br><strong>Estimated feature change:</strong> ${fmt(p.feature_numeric_change_estimated)}<br><strong>QA:</strong> ${escapeHtml(p.relationship_qa_status || "unmatched")} ${escapeHtml(p.quality_warning || "")}`;
       };
       map.on("mousemove", "pc-change-fill", window.__pcChangeMove);
       fitToResults(result.geojson);
@@ -465,7 +456,8 @@
         variable,
         level: geoLevel,
         cacheKey: `${sourceYear}|${targetYear}|${selectedState}|${(selectedCounties||[]).join(",")}|${geoLevel}`,
-        options: options(),
+        options: { ...options(), sliverThreshold: 0.001, directThreshold: 0.95, allowCrossCounty: false },
+        allocationMethod: el("changeAllocationMethod")?.value || "none",
       });
       const filtered = filterFeatureCollectionToChosenGeography(
         result.geojson,
@@ -489,53 +481,16 @@
         ),
       };
       relationshipRows = result.relationships
-        .filter((row) => included.has(String(row.target)))
-        .map((row) => ({
-          source_year: String(sourceYear), target_year: String(targetYear),
-          source_geoid: row.source, target_geoid: row.target,
-          source_original_value: row.sourceOriginalValue, target_original_value: row.targetOriginalValue,
-          relationship_type: row.relationshipType, source_count: row.sourceCount, target_count: row.targetCount,
-          allocation_method: row.allocationMethod, allocation_fraction: row.allocationFraction,
-          earlier_comparison_value: row.earlierComparisonValue, geographic_correspondence: row.geographicCorrespondence,
-          source_overlap_percent: row.sourceShare == null ? null : row.sourceShare * 100,
-          target_overlap_percent: row.targetShare == null ? null : row.targetShare * 100,
-          geoid_verification: row.geoidVerification, qa_status: row.qaStatus
-        }));
+        .filter(row => included.has(String(row.target)))
+        .map(row => ({ relationship_group_id: row.relationshipGroupId, relationship_type: row.relationshipType, source_year: String(sourceYear), target_year: String(targetYear), source_geoid: row.source, target_geoid: row.target, source_original_value: row.sourceOriginalValue, target_original_value: row.targetOriginalValue, source_count: row.sourceCount, target_count: row.targetCount, intersection_area: row.intersectionArea, source_overlap_percent: row.sourceShare == null ? null : row.sourceShare * 100, target_overlap_percent: row.targetShare == null ? null : row.targetShare * 100, overlap_coefficient: row.overlapCoefficient, same_geoid: row.sameGeoid, same_county: row.sameCounty, group_source_total: row.sourceGroupTotal, group_target_total: row.targetGroupTotal, group_numeric_change: row.groupNumericChange, group_percent_change: row.groupPercentChange, allocation_method: row.allocationMethod, qa_status: row.qaStatus }));
       result.geojson = filtered;
-      geojson = compactFeatureCollection(filtered, [
-        "__geoid",
-        "__earlier_harmonized",
-        "__later",
-        "__difference",
-        "__percent",
-        "__relationship",
-        "__assignment_methods",
-        "__confidence",
-        "__source_geoids",
-        "__source_weights",
-        "__observed_coverage",
-        "__forced_assignment",
-        "__estimated",
-        "earlier_value",
-        "later_value",
-        "numeric_change",
-        "percent_change",
-        "percent_change_label",
-        "pct_change_status",
-        "quality_warning",
-        "earlier_original_value", "earlier_comparison_value", "later_original_value",
-        "relationship_dimensions", "allocation_method", "allocation_fraction",
-        "__source_values", "__geoid_verification", "conservation_status",
-      ]);
+      geojson = compactFeatureCollection(filtered, ["__geoid","__difference","__percent","relationship_group_id","relationship_type","relationship_dimensions","source_geoids","target_geoids","source_group_total","target_group_total","group_numeric_change","group_percent_change","group_percent_change_label","later_original_value","estimated_source_value","allocation_method","allocation_fraction","feature_numeric_change_estimated","feature_percent_change_estimated","feature_change_estimated","geoid_verification","relationship_qa_status","quality_warning"]);
       render(result, field, sourceYear, targetYear, variable, token);
       showQa(result.summary);
       el("exportChangeGeoJson").disabled = false;
       el("exportChangeShapefile").disabled = false;
       el("exportChangeRelationships").disabled = !relationshipRows.length;
-      status(
-        `Change map created. Conservation ${result.summary.conservationPassed ? "passed" : "failed"}; ${result.summary.unresolved} unresolved component(s).`,
-        result.summary.conservationPassed && !result.summary.unresolved ? "success" : "checking",
-      );
+      status(`Change map created with ${result.summary.groups} relationship groups; ${result.summary.unmatchedSources} unmatched earlier and ${result.summary.unmatchedTargets} unmatched later observations.`, result.summary.unresolved ? "checking" : "success");
     } catch (error) {
       console.error(error);
       relationshipRows = [];
@@ -545,7 +500,6 @@
 
   document.addEventListener("DOMContentLoaded", () => {
     el("buildChangeMap").addEventListener("click", build);
-    el("changeMapVariable").addEventListener("change", describeVariableSupport);
     el("exportChangeGeoJson").addEventListener(
       "click",
       () => geojson && downloadGeoJson(geojson, prettyCensusFilename("change", el("changeMapVariable").value)),
