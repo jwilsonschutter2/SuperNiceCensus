@@ -236,8 +236,14 @@
     return { rows: normalized, summary };
   }
   function showQa(summary) {
+    const sourceRate = summary.sourceObservationCount
+      ? ((summary.matchedSourceCount / summary.sourceObservationCount) * 100).toFixed(1)
+      : "0.0";
+    const targetRate = summary.targetObservationCount
+      ? ((summary.matchedTargetCount / summary.targetObservationCount) * 100).toFixed(1)
+      : "0.0";
     el("changeMapQa").innerHTML =
-      `<strong>Change Map relationship QA</strong><br>Stable: ${summary.stable}; direct: ${summary.direct}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Matched earlier observations: ${summary.matchedSourceCount}/${summary.sourceObservationCount}; unmatched: ${summary.unmatchedSourceCount}.<br>Matched later observations: ${summary.matchedTargetCount}/${summary.targetObservationCount}; unmatched: ${summary.unmatchedTargetCount}.<br>Value method: sum all earlier values in each relationship group and divide by the number of later targets. No area weighting is applied.`;
+      `<strong>Change Map matching</strong><br>Exact GEOID matches: ${summary.exactGeoidMatches}; direct geographic: ${summary.direct}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; containment rescues: ${summary.containmentRescues}.<br>Matched earlier: ${summary.matchedSourceCount}/${summary.sourceObservationCount} (${sourceRate}%); unmatched: ${summary.unmatchedSourceCount}.<br>Matched later: ${summary.matchedTargetCount}/${summary.targetObservationCount} (${targetRate}%); unmatched: ${summary.unmatchedTargetCount}.<br>Value method: sum earlier values in each relationship group and divide equally by the number of later targets.`;
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
