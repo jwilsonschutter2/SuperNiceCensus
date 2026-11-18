@@ -1,0 +1,1 @@
+ChangeMapV3.VariableStrategy={classify(id){const m=typeof variableMeta==='function'?variableMeta(id):{},s=[m.displayName,m.shortName,m.exportName,m.mapLabel].filter(Boolean).join(' ').toLowerCase();return /\b(median|mean|average|percent|percentage|rate|ratio|index)\b|\bper[ _-]?capita\b/.test(s)?'nonadditive':'additive'}};

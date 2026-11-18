@@ -44,7 +44,7 @@
     });
   }
   function options() {
-    return { strongCoverage: 0.95, minCandidateCoverage: 0.01, sliverThreshold: 0.001, allowCrossCounty: false };
+    return { stableThreshold: 0.99, minIntersectionArea: 0 };
   }
   function finite(value) {
     const number = Number(value);
@@ -272,8 +272,8 @@
     return { rows: normalized, summary };
   }
   function showQa(summary) {
-    const pct=(a,b)=>formatPercentChange(b?100*a/b:0);
-    el("changeMapQa").innerHTML=`<strong>Change Map reconciliation</strong><br><strong>Data reconciliation:</strong> earlier ${summary.dataSourceMatched}/${summary.dataSourceTotal} (${pct(summary.dataSourceMatched,summary.dataSourceTotal)}); later ${summary.dataTargetMatched}/${summary.dataTargetTotal} (${pct(summary.dataTargetMatched,summary.dataTargetTotal)}).<br><strong>Geography accounting:</strong> earlier ${summary.accountedSource}/${summary.dataSourceTotal} (100%); later ${summary.accountedTarget}/${summary.dataTargetTotal} (100%).<br><strong>Resolved temporal relationships:</strong> earlier ${summary.resolvedSource}/${summary.dataSourceTotal}; later ${summary.resolvedTarget}/${summary.dataTargetTotal}. Unresolved earlier: ${summary.unresolvedSource}; unresolved later: ${summary.unresolvedTarget}.<br><strong>Analytically comparable targets:</strong> ${summary.analyticallyComparableTargets}/${summary.dataTargetTotal}. Variable treatment: ${summary.variableKind}.<br>Stable same-GEOID: ${summary.stable_same_geoid}; renumbered/direct: ${summary.renumbered_direct}; direct review: ${summary.direct_review}; splits: ${summary.split}; merges: ${summary.merge}; complex: ${summary.complex}; unresolved components: ${summary.unresolved}. Rejected same-GEOID/no-geography edges: ${summary.rejectedSameGeoidNoGeography}.`;
+    const pass = summary.conservationPassed ? "PASS" : "FAIL";
+    el("changeMapQa").innerHTML = `<strong>Geography-Normalized Change QA</strong><br>Stable: ${summary.stable}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; unresolved: ${summary.unresolved}.<br>Earlier original total: ${fmt(summary.originalTotal)}; reconstructed earlier total: ${fmt(summary.reconstructedTotal)}; difference: ${fmt(summary.conservationDifference)} (${formatPercentChange(summary.conservationPercent)}); conservation: <strong>${pass}</strong>.<br>Later original total: ${fmt(summary.laterOriginalTotal)}. Later observations were not modified.`;
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
@@ -521,13 +521,13 @@
       ]);
       render(result, field, sourceYear, targetYear, variable, token);
       showQa(result.summary);
-      if (result.summary.dataSourceMatched < result.summary.dataSourceTotal || result.summary.dataTargetMatched < result.summary.dataTargetTotal) {
-        console.warn("Census/boundary GEOID reconciliation mismatch", { earlierSample: result.summary.sourceOnlySample, laterSample: result.summary.targetOnlySample });
-      }
       el("exportChangeGeoJson").disabled = false;
       el("exportChangeShapefile").disabled = false;
       el("exportChangeRelationships").disabled = !relationshipRows.length;
-      status(`Change map created. Geography accounting: ${result.summary.accountedSource}/${result.summary.dataSourceTotal} earlier and ${result.summary.accountedTarget}/${result.summary.dataTargetTotal} later; analytically comparable targets: ${result.summary.analyticallyComparableTargets}/${result.summary.dataTargetTotal}.`, result.summary.unresolvedSource || result.summary.unresolvedTarget ? "checking" : "success");
+      status(
+        `Change map created. Conservation ${result.summary.conservationPassed ? "passed" : "failed"}; ${result.summary.unresolved} unresolved component(s).`,
+        result.summary.conservationPassed && !result.summary.unresolved ? "success" : "checking",
+      );
     } catch (error) {
       console.error(error);
       relationshipRows = [];
