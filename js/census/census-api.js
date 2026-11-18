@@ -79,51 +79,16 @@ function buildSingleTopicUrls(year, topic) {
   if (!counties.length) return [];
   return counties.map(county=>{ const save=selectedCounty; selectedCounty=county; const url=buildSingleTopicUrl(year,topic); selectedCounty=save; return url; }).filter(Boolean);
 }
-async function fetchCensusJson(url, context, attempts = 3) {
-  let lastError;
-  for (let attempt = 1; attempt <= attempts; attempt++) {
-    try {
-      const response = await fetch(url, { headers: { Accept: "application/json" } });
-      const text = await response.text();
-      if (!response.ok) {
-        const detail = text.trim().slice(0, 240);
-        throw Error(`${context} failed (${response.status}${response.statusText ? ` ${response.statusText}` : ""})${detail ? `: ${detail}` : ""}`);
-      }
-      if (!text.trim()) throw Error(`${context} returned an empty response.`);
-      let data;
-      try { data = JSON.parse(text); }
-      catch (_) { throw Error(`${context} returned invalid JSON: ${text.trim().slice(0, 240)}`); }
-      if (!Array.isArray(data) || !Array.isArray(data[0])) throw Error(`${context} returned an unexpected Census API payload.`);
-      return data;
-    } catch (error) {
-      lastError = error;
-      if (attempt < attempts) await new Promise(resolve => setTimeout(resolve, 350 * attempt));
-    }
-  }
-  throw lastError;
-}
 async function fetchTopicRowsForCounties(year, topic, progress) {
-  const counties = activeCounties(), urls = buildSingleTopicUrls(year, topic), all = [], failures = [];
-  if (!urls.length) throw Error(`No Census API requests could be built for ${year}. Confirm the selected state, counties, geography, dataset, and variable.`);
-  for (let i = 0; i < urls.length; i++) {
-    const county = counties[i] || "unknown";
-    if (progress) progress(i + 1, urls.length);
-    try {
-      const data = await fetchCensusJson(urls[i], `Census ${year} request for county ${county}`);
-      all.push(...apiArrayToObjects(data));
-    } catch (error) { failures.push({ county, message: error.message }); }
-  }
-  if (failures.length) {
-    const detail = failures.map(x => `${x.county}: ${x.message}`).join(" | ");
-    throw Error(`Census data could not be loaded for ${failures.length} of ${urls.length} selected counties. ${detail}`);
-  }
-  return [...new Map(all.map(row => [PrettyCensusGeoid.fromRow(row, geoLevel), row])).values()];
+ const urls=buildSingleTopicUrls(year,topic), all=[];
+ for(let i=0;i<urls.length;i++){ if(progress) progress(i+1,urls.length); const r=await fetch(urls[i]); if(!r.ok) throw Error(`Census request failed (${r.status}) for county ${activeCounties()[i]}.`); all.push(...apiArrayToObjects(await r.json())); }
+ return [...new Map(all.map(row=>[PrettyCensusGeoid.fromRow(row,geoLevel),row])).values()];
 }
 async function fetchJsonAndDisplay() {
   const counties=activeCounties(); if(!counties.length){ alert("Select at least one county."); return; }
   try {
     let headers=null, rows=[];
-    for(let i=0;i<counties.length;i++){ const save=selectedCounty; selectedCounty=counties[i]; const url=buildCensusURL({outputFormat:"json"}).replace(/&?outputFormat=csv/,""); selectedCounty=save; const d=await fetchCensusJson(url, `Census table request for county ${counties[i]}`); headers=headers||d[0]; rows.push(...d.slice(1)); $("jsonTableContainer").innerHTML=`<p>Loading county ${i+1} of ${counties.length}...</p>`; }
+    for(let i=0;i<counties.length;i++){ const save=selectedCounty; selectedCounty=counties[i]; const url=buildCensusURL({outputFormat:"json"}).replace(/&?outputFormat=csv/,""); selectedCounty=save; const r=await fetch(url); if(!r.ok) throw Error(`County ${i+1} of ${counties.length} failed (${r.status}).`); const d=await r.json(); headers=headers||d[0]; rows.push(...d.slice(1)); $("jsonTableContainer").innerHTML=`<p>Loading county ${i+1} of ${counties.length}...</p>`; }
     const unique=[...new Map(rows.map(row=>[headers.map((h,j)=>({h,v:row[j]})).filter(x=>["state","county","tract","block group"].includes(x.h)).map(x=>x.v).join("|"),row])).values()];
     let d=[headers,...unique]; currentFetchedData=d; currentFetchedHeaders=headers; $("jsonTableContainer").innerHTML=convertJSONToTable(d); $("exportCurrentCsvBtn").disabled=false;
   } catch(e){ $("jsonTableContainer").innerHTML=`<p class='error-text'>${escapeHtml(e.message)}</p>`; $("exportCurrentCsvBtn").disabled=true; }
