@@ -44,7 +44,7 @@
     });
   }
   function options() {
-    return { stableThreshold: 0.95, sliverThreshold: 0.0001, allowCrossCounty: false };
+    return { strongCoverage: 0.95, minCandidateCoverage: 0.01, sliverThreshold: 0.001, allowCrossCounty: false };
   }
   function finite(value) {
     const number = Number(value);
@@ -273,7 +273,7 @@
   }
   function showQa(summary) {
     const pct=(a,b)=>formatPercentChange(b?100*a/b:0);
-    el("changeMapQa").innerHTML=`<strong>Change Map reconciliation</strong><br><strong>Data reconciliation:</strong> earlier ${summary.dataSourceMatched}/${summary.dataSourceTotal} (${pct(summary.dataSourceMatched,summary.dataSourceTotal)}); later ${summary.dataTargetMatched}/${summary.dataTargetTotal} (${pct(summary.dataTargetMatched,summary.dataTargetTotal)}).<br><strong>Geography accounting:</strong> earlier ${summary.accountedSource}/${summary.dataSourceTotal} (100%); later ${summary.accountedTarget}/${summary.dataTargetTotal} (100%).<br><strong>Resolved temporal relationships:</strong> earlier ${summary.resolvedSource}/${summary.dataSourceTotal}; later ${summary.resolvedTarget}/${summary.dataTargetTotal}. Unresolved earlier: ${summary.unresolvedSource}; unresolved later: ${summary.unresolvedTarget}.<br><strong>Analytically comparable targets:</strong> ${summary.analyticallyComparableTargets}/${summary.dataTargetTotal}. Variable treatment: ${summary.variableKind}.<br>Stable verified: ${summary.stable_verified}; stable geometry changed: ${summary.stable_geometry_changed}; renumbered/direct: ${summary.renumbered_direct}; direct low-overlap: ${summary.direct_low_overlap}; provisional nearest: ${summary.provisional_nearest}; splits: ${summary.split}; merges: ${summary.merge}; complex: ${summary.complex}; unresolved components: ${summary.unresolved}.`;
+    el("changeMapQa").innerHTML=`<strong>Change Map reconciliation</strong><br><strong>Data reconciliation:</strong> earlier ${summary.dataSourceMatched}/${summary.dataSourceTotal} (${pct(summary.dataSourceMatched,summary.dataSourceTotal)}); later ${summary.dataTargetMatched}/${summary.dataTargetTotal} (${pct(summary.dataTargetMatched,summary.dataTargetTotal)}).<br><strong>Geography accounting:</strong> earlier ${summary.accountedSource}/${summary.dataSourceTotal} (100%); later ${summary.accountedTarget}/${summary.dataTargetTotal} (100%).<br><strong>Resolved temporal relationships:</strong> earlier ${summary.resolvedSource}/${summary.dataSourceTotal}; later ${summary.resolvedTarget}/${summary.dataTargetTotal}. Unresolved earlier: ${summary.unresolvedSource}; unresolved later: ${summary.unresolvedTarget}.<br><strong>Analytically comparable targets:</strong> ${summary.analyticallyComparableTargets}/${summary.dataTargetTotal}. Variable treatment: ${summary.variableKind}.<br>Stable same-GEOID: ${summary.stable_same_geoid}; renumbered/direct: ${summary.renumbered_direct}; direct review: ${summary.direct_review}; splits: ${summary.split}; merges: ${summary.merge}; complex: ${summary.complex}; unresolved components: ${summary.unresolved}. Rejected same-GEOID/no-geography edges: ${summary.rejectedSameGeoidNoGeography}.`;
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
