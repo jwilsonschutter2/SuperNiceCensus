@@ -26,7 +26,9 @@ window.PrettyCensusBoundaries = (() => {
                     .pipeThrough(new DecompressionStream("gzip")),
                 ).text()
               : new TextDecoder().decode(b);
-          return JSON.parse(text);
+          if (!text.trim()) throw Error(`Boundary request returned an empty response: ${u}`);
+          try { return JSON.parse(text); }
+          catch (_) { throw Error(`Boundary response was not valid GeoJSON: ${u}`); }
         }),
       );
     return structuredClone(await cache.get(u));

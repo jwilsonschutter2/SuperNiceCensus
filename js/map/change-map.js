@@ -492,9 +492,13 @@
       el("exportChangeRelationships").disabled = !relationshipRows.length;
       status(`Change map created with ${result.summary.groups} relationship groups; ${result.summary.unmatchedSources} unmatched earlier and ${result.summary.unmatchedTargets} unmatched later observations.`, result.summary.unresolved ? "checking" : "success");
     } catch (error) {
-      console.error(error);
+      console.error("Change Map build failed:", error);
       relationshipRows = [];
+      geojson = null;
+      ["exportChangeGeoJson", "exportChangeShapefile", "exportChangeRelationships"].forEach(id => el(id).disabled = true);
       status(error.message || String(error), "error");
+    } finally {
+      buildButton.disabled = false;
     }
   }
 
