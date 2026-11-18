@@ -5,7 +5,7 @@
  * 3) Add containment edges for remaining geographies. These edges may complete merges/splits.
  * 4) Do not assign by proximity. Unmatched records remain explicit exceptions.
  */
-importScripts("https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js");
+importScripts("../vendor/turf.min.js");
 
 self.onmessage = (event) => {
   try {
