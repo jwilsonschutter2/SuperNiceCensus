@@ -530,7 +530,7 @@
       el("exportChangeShapefile").disabled = false;
       el("exportChangeRelationships").disabled = !relationshipRows.length;
       status(
-        `Change map created. Conservation ${result.summary.conservationPassed ? "passed" : "failed"}; ${result.summary.unresolved} unresolved component(s).`,
+        result.summary.conservationApplicable ? `Change map created. Conservation ${result.summary.conservationPassed ? "passed" : "failed"}; ${result.summary.unresolved} unresolved component(s).` : `Change map created for a non-additive variable. Stable 1-to-1 features are compared; ${result.summary.unresolved} changed-boundary component(s) are not analytically comparable.`,
         result.summary.conservationPassed && !result.summary.unresolved ? "success" : "checking",
       );
     } catch (error) {
