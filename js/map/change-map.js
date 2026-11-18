@@ -44,7 +44,7 @@
     });
   }
   function options() {
-    return { stableThreshold: 0.99, minIntersectionArea: 0 };
+    return { stableThreshold: 0.95, sliverThreshold: 0.0001, allowCrossCounty: false };
   }
   function finite(value) {
     const number = Number(value);
@@ -521,6 +521,9 @@
       ]);
       render(result, field, sourceYear, targetYear, variable, token);
       showQa(result.summary);
+      if (result.summary.dataSourceMatched < result.summary.dataSourceTotal || result.summary.dataTargetMatched < result.summary.dataTargetTotal) {
+        console.warn("Census/boundary GEOID reconciliation mismatch", { earlierSample: result.summary.sourceOnlySample, laterSample: result.summary.targetOnlySample });
+      }
       el("exportChangeGeoJson").disabled = false;
       el("exportChangeShapefile").disabled = false;
       el("exportChangeRelationships").disabled = !relationshipRows.length;
