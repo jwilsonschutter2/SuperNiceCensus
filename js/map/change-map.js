@@ -16,18 +16,23 @@
     const select = el("changeMapVariable"),
       previous = select.value;
     select.innerHTML = '<option value="">-- Select variable --</option>';
-    selectedTables.forEach((id) => {
+    const ids = [];
+    (selectedTables || []).forEach((id) => { if (id && !ids.includes(id)) ids.push(id); });
+    const raw = el("tableInput")?.value || "";
+    raw.split(/[\s,;]+/).map(v => v.trim()).filter(Boolean).forEach(id => { if (!ids.includes(id)) ids.push(id); });
+    ids.forEach((id) => {
       const option = document.createElement("option");
       option.value = id;
-      option.textContent = tableFriendlyNames[id]
-        ? `${tableFriendlyNames[id]} (${id})`
-        : id;
+      option.textContent = tableFriendlyNames[id] ? `${tableFriendlyNames[id]} (${id})` : id;
       select.append(option);
     });
-    if (selectedTables.includes(previous)) select.value = previous;
-    else if (selectedTables.length === 1) select.value = selectedTables[0];
+    if (ids.includes(previous)) select.value = previous;
+    else if (ids.length === 1) select.value = ids[0];
+    select.disabled = ids.length === 0;
   }
   window.populateChangeMapVariables = populate;
+  document.addEventListener("change", (ev) => { if (ev.target?.matches?.("#tableInput, input[type=checkbox], #mappingOption")) setTimeout(populate, 0); });
+  document.addEventListener("input", (ev) => { if (ev.target?.id === "tableInput") populate(); });
 
   async function rows(year, variable) {
     if (typeof fetchTopicRowsForCounties === "function") return fetchTopicRowsForCounties(year, variable, (i,n)=>status(`Loading ${year}: county ${i} of ${n}...`,"checking"));
