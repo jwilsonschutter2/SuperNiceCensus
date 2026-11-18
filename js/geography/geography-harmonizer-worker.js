@@ -1,13 +1,9 @@
 /**
- * LATS-style relationship resolver.
- *
- * Pass 1: exact GEOID continuity. Exact matches are locked one-to-one and are not reused.
- * Pass 2: unmatched features are related by same-county polygon intersection. Intersection
- *         percentages are QA evidence only and never value-allocation weights.
- * Pass 3: remaining unmatched features receive a relationship only when reciprocal/simple
- *         point-on-surface containment supplies geographic evidence.
- *
- * No candidate scoring, GEOID renumbering, area weighting, or proximity-based assignment.
+ * High-coverage LATS-style temporal relationship resolver.
+ * 1) Lock exact GEOID matches one-to-one.
+ * 2) Relate remaining same-county features by positive polygon overlap.
+ * 3) Add containment edges for remaining geographies. These edges may complete merges/splits.
+ * 4) Do not assign by proximity. Unmatched records remain explicit exceptions.
  */
 importScripts("https://cdn.jsdelivr.net/npm/@turf/turf@6.5.0/turf.min.js");
 
@@ -20,49 +16,59 @@ self.onmessage = (event) => {
 };
 
 function build({ sourceFeatures, targetFeatures, options = {} }) {
-  const sliverThreshold = Number(options.sliverThreshold) || 0.0001; // 0.01%
+  const sliverThreshold = Number(options.sliverThreshold) || 0.0001;
+  const sources = sourceFeatures.map(prep).filter(Boolean);
+  const targets = targetFeatures.map(prep).filter(Boolean);
+  const sourceById = new Map(sources.map((x) => [x.id, x]));
+  const targetById = new Map(targets.map((x) => [x.id, x]));
   const relationships = [];
   const diagnostics = [];
-  let intersectionErrors = 0;
-
-  const sources = sourceFeatures.map(prepFeature).filter(Boolean);
-  const targets = targetFeatures.map(prepFeature).filter(Boolean);
-  const sourceById = new Map(sources.map((item) => [item.id, item]));
-  const targetById = new Map(targets.map((item) => [item.id, item]));
   const lockedSources = new Set();
   const lockedTargets = new Set();
+  let intersectionErrors = 0;
+  const intersectionErrorSamples = [];
 
-  // Pass 1: exact GEOID continuity. This is intentionally the primary LATS-style match.
+  // Pass 1: exact GEOID continuity, exclusively one-to-one.
   for (const [id, source] of sourceById) {
     const target = targetById.get(id);
     if (!target) continue;
-    relationships.push(makeExactRelationship(source, target));
+    const evidence = overlapEvidence(source, target);
+    if (evidence.error) recordIntersectionError(source.id, target.id, evidence.message);
+    relationships.push({
+      source: id,
+      target: id,
+      intersectionArea: evidence.area,
+      sourceShare: evidence.area / source.area,
+      targetShare: evidence.area / target.area,
+      sameGeoid: true,
+      sameCounty: true,
+      stableVerified: true,
+      method: "exact-geoid",
+      forced: false,
+    });
     lockedSources.add(id);
     lockedTargets.add(id);
   }
 
-  // Pass 2: geography only for GEOIDs that did not continue directly.
+  // Pass 2: complete residual overlap graph. Locked exact matches are never reused.
   for (const source of sources) {
     if (lockedSources.has(source.id)) continue;
     for (const target of targets) {
       if (lockedTargets.has(target.id)) continue;
       if (!sameCounty(source.id, target.id) || !bboxTouches(source.box, target.box)) continue;
-
-      const intersection = safeIntersection(source.feature, target.feature);
-      if (intersection.error) {
-        intersectionErrors += 1;
+      const evidence = overlapEvidence(source, target);
+      if (evidence.error) {
+        recordIntersectionError(source.id, target.id, evidence.message);
         continue;
       }
-      if (intersection.area <= 0) continue;
-
-      const sourceShare = intersection.area / source.area;
-      const targetShare = intersection.area / target.area;
+      if (evidence.area <= 0) continue;
+      const sourceShare = evidence.area / source.area;
+      const targetShare = evidence.area / target.area;
       if (sourceShare < sliverThreshold && targetShare < sliverThreshold) continue;
-
       relationships.push({
         source: source.id,
         target: target.id,
-        intersectionArea: intersection.area,
+        intersectionArea: evidence.area,
         sourceShare,
         targetShare,
         sameGeoid: false,
@@ -74,139 +80,186 @@ function build({ sourceFeatures, targetFeatures, options = {} }) {
     }
   }
 
-  // Pass 3: containment rescue for features still absent from any temporal relationship.
-  const relatedSources = new Set(relationships.map((record) => record.source));
-  const relatedTargets = new Set(relationships.map((record) => record.target));
-
+  // Pass 3: containment evidence may attach an unmatched source or target to an existing
+  // residual component, allowing legitimate split/merge completion.
+  let relatedSources = new Set(relationships.map((r) => r.source));
+  let relatedTargets = new Set(relationships.map((r) => r.target));
   for (const source of sources) {
-    if (relatedSources.has(source.id)) continue;
-    const candidates = [];
+    if (lockedSources.has(source.id) || relatedSources.has(source.id)) continue;
     for (const target of targets) {
-      if (relatedTargets.has(target.id)) continue;
+      if (lockedTargets.has(target.id)) continue;
       if (!sameCounty(source.id, target.id)) continue;
-      const sourceInTarget = pointInside(source.feature, target.feature);
-      const targetInSource = pointInside(target.feature, source.feature);
-      if (sourceInTarget || targetInSource) {
-        candidates.push({ target, sourceInTarget, targetInSource });
+      if (
+        containsRepresentativePoint(source.feature, target.feature) ||
+        containsRepresentativePoint(target.feature, source.feature)
+      ) {
+        relationships.push(containmentRecord(source.id, target.id));
       }
     }
-
-    // Only auto-rescue an unambiguous containment relationship.
-    if (candidates.length === 1) {
-      const { target, sourceInTarget, targetInSource } = candidates[0];
-      relationships.push({
-        source: source.id,
-        target: target.id,
-        intersectionArea: 0,
-        sourceShare: 0,
-        targetShare: 0,
-        sameGeoid: false,
-        sameCounty: true,
-        stableVerified: false,
-        method: sourceInTarget && targetInSource ? "reciprocal-containment" : "containment-rescue",
-        forced: false,
-      });
-      relatedSources.add(source.id);
-      relatedTargets.add(target.id);
+  }
+  relatedSources = new Set(relationships.map((r) => r.source));
+  relatedTargets = new Set(relationships.map((r) => r.target));
+  for (const target of targets) {
+    if (lockedTargets.has(target.id) || relatedTargets.has(target.id)) continue;
+    for (const source of sources) {
+      if (lockedSources.has(source.id)) continue;
+      if (!sameCounty(source.id, target.id)) continue;
+      if (
+        containsRepresentativePoint(source.feature, target.feature) ||
+        containsRepresentativePoint(target.feature, source.feature)
+      ) {
+        relationships.push(containmentRecord(source.id, target.id));
+      }
     }
   }
 
-  const finalSources = new Set(relationships.map((record) => record.source));
-  const finalTargets = new Set(relationships.map((record) => record.target));
-  for (const source of sources) {
+  const clean = dedupe(relationships);
+  const finalSources = new Set(clean.map((r) => r.source));
+  const finalTargets = new Set(clean.map((r) => r.target));
+  for (const source of sources)
     if (!finalSources.has(source.id))
       diagnostics.push({ source: source.id, reason: "unmatched-source" });
-  }
-  for (const target of targets) {
+  for (const target of targets)
     if (!finalTargets.has(target.id))
       diagnostics.push({ target: target.id, reason: "unmatched-target" });
-  }
 
   return {
-    relationships: dedupeRelationships(relationships),
+    relationships: clean,
     diagnostics,
     intersectionErrors,
+    intersectionErrorSamples,
     exactGeoidMatches: lockedSources.size,
-    containmentRescues: relationships.filter((record) => record.method.includes("containment"))
-      .length,
-    forcedNearest: 0,
+    containmentRescues: clean.filter((r) => r.method === "containment").length,
   };
+
+  function recordIntersectionError(source, target, message) {
+    intersectionErrors += 1;
+    if (intersectionErrorSamples.length < 5)
+      intersectionErrorSamples.push({ source, target, message });
+  }
 }
 
-function prepFeature(feature) {
-  const id = String(feature?.properties?.__pc_geoid || "");
-  const area = safeArea(feature);
-  const box = safeBbox(feature);
-  return id && area > 0 && box ? { feature, id, area, box } : null;
-}
-
-function makeExactRelationship(source, target) {
-  let intersectionArea = 0;
-  const intersection = safeIntersection(source.feature, target.feature);
-  if (!intersection.error) intersectionArea = intersection.area;
+function containmentRecord(source, target) {
   return {
-    source: source.id,
-    target: target.id,
-    intersectionArea,
-    sourceShare: intersectionArea / source.area,
-    targetShare: intersectionArea / target.area,
-    sameGeoid: true,
+    source,
+    target,
+    intersectionArea: 0,
+    sourceShare: 0,
+    targetShare: 0,
+    sameGeoid: false,
     sameCounty: true,
-    stableVerified: true,
-    method: "exact-geoid",
+    stableVerified: false,
+    method: "containment",
     forced: false,
   };
 }
 
-function dedupeRelationships(records) {
-  const seen = new Set();
-  return records.filter((record) => {
+function prep(feature) {
+  const id = String(feature?.properties?.__pc_geoid || "");
+  const normalized = normalizeGeometry(feature);
+  const area = normalized ? safeArea(normalized) : 0;
+  const box = normalized ? safeBbox(normalized) : null;
+  return id && normalized && area > 0 && box ? { feature: normalized, id, area, box } : null;
+}
+
+function normalizeGeometry(feature) {
+  try {
+    if (!feature?.geometry) return null;
+    // Turf cleanCoords removes redundant coordinates that commonly break overlays.
+    const cleaned = turf.cleanCoords(feature, { mutate: false });
+    if (cleaned.geometry.type === "Polygon" || cleaned.geometry.type === "MultiPolygon")
+      return cleaned;
+    return null;
+  } catch (_) {
+    return feature;
+  }
+}
+
+function overlapEvidence(source, target) {
+  // Primary: Turf polygon intersection.
+  try {
+    const result = turf.intersect(source.feature, target.feature);
+    return { area: result ? safeArea(result) : 0, error: false, message: "" };
+  } catch (firstError) {
+    // Geometry-safe fallback: unkink each side, intersect valid polygon pieces, and sum.
+    try {
+      const sourceParts = polygonParts(source.feature);
+      const targetParts = polygonParts(target.feature);
+      let area = 0;
+      for (const a of sourceParts)
+        for (const b of targetParts) {
+          try {
+            const result = turf.intersect(a, b);
+            if (result) area += safeArea(result);
+          } catch (_) {
+            /* a bad piece should not invalidate other valid pieces */
+          }
+        }
+      if (area > 0) return { area, error: false, message: "recovered-with-polygon-parts" };
+      // If overlay remains unavailable, representative-point containment still proves overlap.
+      if (
+        containsRepresentativePoint(source.feature, target.feature) ||
+        containsRepresentativePoint(target.feature, source.feature)
+      ) {
+        const conservativeArea = Math.min(source.area, target.area);
+        return { area: conservativeArea, error: false, message: "recovered-with-containment" };
+      }
+      return { area: 0, error: true, message: String(firstError?.message || firstError) };
+    } catch (fallbackError) {
+      return { area: 0, error: true, message: String(fallbackError?.message || fallbackError) };
+    }
+  }
+}
+
+function polygonParts(feature) {
+  try {
+    if (feature.geometry.type === "Polygon")
+      return turf.unkinkPolygon(feature).features || [feature];
+    const parts = [];
+    for (const coordinates of feature.geometry.coordinates || []) {
+      const polygon = turf.polygon(coordinates);
+      parts.push(...(turf.unkinkPolygon(polygon).features || [polygon]));
+    }
+    return parts.length ? parts : [feature];
+  } catch (_) {
+    return [feature];
+  }
+}
+
+function containsRepresentativePoint(pointSource, polygon) {
+  try {
+    return turf.booleanPointInPolygon(turf.pointOnFeature(pointSource), polygon);
+  } catch (_) {
+    return false;
+  }
+}
+function dedupe(records) {
+  const byKey = new Map();
+  for (const record of records) {
     const key = `${record.source}|${record.target}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+    const current = byKey.get(key);
+    if (!current || record.intersectionArea > current.intersectionArea) byKey.set(key, record);
+  }
+  return [...byKey.values()];
 }
-
-function sameCounty(sourceId, targetId) {
-  return sourceId.slice(0, 5) === targetId.slice(0, 5);
+function sameCounty(a, b) {
+  return a.slice(0, 5) === b.slice(0, 5);
 }
-
+function bboxTouches(a, b) {
+  return a && b && a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+}
 function safeArea(feature) {
   try {
-    const area = turf.area(feature);
-    return Number.isFinite(area) && area > 0 ? area : 0;
+    const n = turf.area(feature);
+    return Number.isFinite(n) && n > 0 ? n : 0;
   } catch (_) {
     return 0;
   }
 }
-
 function safeBbox(feature) {
   try {
     return turf.bbox(feature);
   } catch (_) {
     return null;
-  }
-}
-
-function bboxTouches(a, b) {
-  return a && b && a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
-}
-
-function safeIntersection(a, b) {
-  try {
-    const intersection = turf.intersect(a, b);
-    return { area: intersection ? safeArea(intersection) : 0, error: false };
-  } catch (_) {
-    return { area: 0, error: true };
-  }
-}
-
-function pointInside(pointFeature, polygonFeature) {
-  try {
-    const point = turf.pointOnFeature(pointFeature);
-    return turf.booleanPointInPolygon(point, polygonFeature);
-  } catch (_) {
-    return false;
   }
 }

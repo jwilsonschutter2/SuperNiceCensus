@@ -150,6 +150,7 @@ window.PrettyCensusHarmonizer = (() => {
       intersectionErrors: data.intersectionErrors || 0,
       exactGeoidMatches: data.exactGeoidMatches || 0,
       containmentRescues: data.containmentRescues || 0,
+      intersectionErrorSamples: data.intersectionErrorSamples || [],
     };
 
     const matchedSources = new Set();

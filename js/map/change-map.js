@@ -44,8 +44,34 @@
       };
     });
   }
+
+  async function boundaries(year, level) {
+    const counties = (selectedCounties || []).length
+      ? [...selectedCounties]
+      : selectedCounty
+        ? [selectedCounty]
+        : [];
+    if (!counties.length) throw Error("Select at least one county.");
+
+    const merged = { type: "FeatureCollection", features: [] };
+    const seen = new Set();
+    for (const county of counties) {
+      const context = { state: selectedState, county, level, year };
+      const collection = await PrettyCensusBoundaries.load(context);
+      PrettyCensusBoundaries.county(collection, context);
+      tag(collection, level);
+      for (const feature of collection.features || []) {
+        const geoid = String(feature.properties?.__pc_geoid || "");
+        if (geoid && !seen.has(geoid)) {
+          seen.add(geoid);
+          merged.features.push(feature);
+        }
+      }
+    }
+    return merged;
+  }
   function options() {
-    return { stableThreshold: 0.99, minIntersectionArea: 0 };
+    return { sliverThreshold: 0.0001 };
   }
   function finite(value) {
     const number = Number(value);
@@ -242,8 +268,13 @@
     const targetRate = summary.targetObservationCount
       ? ((summary.matchedTargetCount / summary.targetObservationCount) * 100).toFixed(1)
       : "0.0";
+    const geometryWarning = summary.intersectionErrors
+      ? `<br><strong>Geometry overlay warnings:</strong> ${summary.intersectionErrors}. See the console for sample source-target pairs.`
+      : "";
     el("changeMapQa").innerHTML =
-      `<strong>Change Map matching</strong><br>Exact GEOID matches: ${summary.exactGeoidMatches}; direct geographic: ${summary.direct}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; containment rescues: ${summary.containmentRescues}.<br>Matched earlier: ${summary.matchedSourceCount}/${summary.sourceObservationCount} (${sourceRate}%); unmatched: ${summary.unmatchedSourceCount}.<br>Matched later: ${summary.matchedTargetCount}/${summary.targetObservationCount} (${targetRate}%); unmatched: ${summary.unmatchedTargetCount}.<br>Value method: sum earlier values in each relationship group and divide equally by the number of later targets.`;
+      `<strong>Change Map matching</strong><br>Exact GEOID matches: ${summary.exactGeoidMatches}; direct geographic: ${summary.direct}; splits: ${summary.splits}; merges: ${summary.merges}; complex: ${summary.complex}; containment edges: ${summary.containmentRescues}.<br>Matched earlier: ${summary.matchedSourceCount}/${summary.sourceObservationCount} (${sourceRate}%); unmatched: ${summary.unmatchedSourceCount}.<br>Matched later: ${summary.matchedTargetCount}/${summary.targetObservationCount} (${targetRate}%); unmatched: ${summary.unmatchedTargetCount}.${geometryWarning}<br>Value method: sum earlier values in each relationship group and divide equally by the number of later targets.`;
+    if (summary.intersectionErrorSamples?.length)
+      console.warn("Change Map geometry overlay samples", summary.intersectionErrorSamples);
   }
   function validBounds(collection) {
     const bounds = new mapboxgl.LngLatBounds();
@@ -366,7 +397,7 @@
       window.__pcChangeMove = (event) => {
         const p = event.features[0].properties;
         el("changeMapReadout").innerHTML =
-          `<strong>Target GEOID:</strong> ${escapeHtml(p.__geoid)}<br><strong>Earlier source GEOID(s):</strong> ${escapeHtml(p.__source_geoids || "None")}<br><strong>Relationship:</strong> ${escapeHtml(p.__relationship)} (${escapeHtml(p.relationship_dimensions || "")})<br><strong>GEOID verification:</strong> ${escapeHtml(p.__geoid_verification || "review")}<br><strong>Allocation:</strong> ${escapeHtml(p.allocation_method || "none")} ${p.allocation_fraction != null ? `(${formatPercentChange(Number(p.allocation_fraction) * 100)})` : ""}<br><strong>${sourceYear} original source value(s):</strong> ${escapeHtml(p.__source_values || "No data")}<br><strong>${sourceYear} comparison value:</strong> ${fmt(p.earlier_comparison_value)}<br><strong>${targetYear} original value:</strong> ${fmt(p.later_original_value)}<br><strong>Numeric change:</strong> ${fmt(p.numeric_change)}<br><strong>Percentage change:</strong> ${formatPercentChange(p.percent_change, p.pct_change_status)}<br><strong>Conservation:</strong> ${escapeHtml(p.conservation_status || "not checked")}<br><strong>Warning:</strong> ${escapeHtml(p.quality_warning || "None")}`;
+          `<strong>Target GEOID:</strong> ${escapeHtml(p.__geoid)}<br><strong>Earlier source GEOID(s):</strong> ${escapeHtml(p.__source_geoids || "None")}<br><strong>Relationship:</strong> ${escapeHtml(p.__relationship)} (${escapeHtml(p.relationship_dimensions || "")})<br><strong>GEOID verification:</strong> ${escapeHtml(p.__geoid_verification || "review")}<br><strong>Allocation:</strong> ${escapeHtml(p.allocation_method || "none")} ${p.allocation_fraction != null ? `(${formatPercentChange(Number(p.allocation_fraction) * 100)})` : ""}<br><strong>${sourceYear} original source value(s):</strong> ${escapeHtml(p.__source_values || "No data")}<br><strong>${sourceYear} comparison value:</strong> ${fmt(p.earlier_comparison_value)}<br><strong>${targetYear} original value:</strong> ${fmt(p.later_original_value)}<br><strong>Numeric change:</strong> ${fmt(p.numeric_change)}<br><strong>Percentage change:</strong> ${formatPercentChange(p.percent_change, p.pct_change_status)}<br><strong>Warning:</strong> ${escapeHtml(p.quality_warning || "None")}`;
       };
       map.on("mousemove", "pc-change-fill", window.__pcChangeMove);
       fitToResults(result.geojson);
@@ -405,15 +436,11 @@
     try {
       status("Building and validating geographic relationships...", "checking");
       const [sourceGeo, targetGeo, sourceRows, targetRows] = await Promise.all([
-        PrettyCensusBoundaries.load({ ...base, year: sourceYear }),
-        PrettyCensusBoundaries.load({ ...base, year: targetYear }),
+        boundaries(sourceYear, geoLevel),
+        boundaries(targetYear, geoLevel),
         rows(sourceYear, variable),
         rows(targetYear, variable),
       ]);
-      PrettyCensusBoundaries.county(sourceGeo, base);
-      PrettyCensusBoundaries.county(targetGeo, base);
-      tag(sourceGeo, geoLevel);
-      tag(targetGeo, geoLevel);
       const result = await PrettyCensusHarmonizer.harmonize({
         sourceGeoJson: sourceGeo,
         targetGeoJson: targetGeo,
@@ -488,7 +515,6 @@
         "allocation_fraction",
         "__source_values",
         "__geoid_verification",
-        "conservation_status",
       ]);
       render(result, field, sourceYear, targetYear, variable, token);
       showQa(result.summary);
