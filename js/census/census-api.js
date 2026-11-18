@@ -80,13 +80,8 @@ function buildSingleTopicUrls(year, topic) {
   return counties.map(county=>{ const save=selectedCounty; selectedCounty=county; const url=buildSingleTopicUrl(year,topic); selectedCounty=save; return url; }).filter(Boolean);
 }
 async function fetchTopicRowsForCounties(year, topic, progress) {
- const urls=buildSingleTopicUrls(year,topic), counties=activeCounties(), all=[];
- for(let i=0;i<urls.length;i++){
-  if(progress) progress(i+1,urls.length); let data=null,last=null;
-  for(let attempt=1;attempt<=3;attempt++){try{const r=await fetch(urls[i],{headers:{Accept:"application/json"}}),text=await r.text();if(!r.ok)throw Error(`HTTP ${r.status}: ${text.slice(0,180)}`);if(!text.trim())throw Error("empty response");data=JSON.parse(text);if(!Array.isArray(data)||!Array.isArray(data[0]))throw Error("unexpected payload");break}catch(e){last=e;if(attempt<3)await new Promise(ok=>setTimeout(ok,300*attempt));}}
-  if(!data)throw Error(`Census ${year} request failed for county ${counties[i]} after 3 attempts: ${last?.message||last}`);
-  all.push(...apiArrayToObjects(data));
- }
+ const urls=buildSingleTopicUrls(year,topic), all=[];
+ for(let i=0;i<urls.length;i++){ if(progress) progress(i+1,urls.length); const r=await fetch(urls[i]); if(!r.ok) throw Error(`Census request failed (${r.status}) for county ${activeCounties()[i]}.`); all.push(...apiArrayToObjects(await r.json())); }
  return [...new Map(all.map(row=>[PrettyCensusGeoid.fromRow(row,geoLevel),row])).values()];
 }
 async function fetchJsonAndDisplay() {

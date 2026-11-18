@@ -322,7 +322,10 @@
           <div>
             <h3>Create change map</h3>
             <p class="hint">
-              Change Map V3 uses exact canonical GEOIDs first, requires geographic evidence for direct matches, locks accepted 1-to-1 pairs, and uses simple polygon overlap only for remaining split, merge, and complex relationships.
+              Uses one fixed GEOID-first method: validate identifiers, rank
+              tract and block-group candidates, confirm by polygon intersection,
+              classify cardinality, and allocate additive values. Every valid
+              older source is assigned within the same county.
             </p>
           </div>
           <button class="icon-button" id="closeChangeMapPanelBtn" type="button">
